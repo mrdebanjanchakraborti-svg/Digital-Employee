@@ -1,0 +1,7 @@
+{
+  "name": "Digital Employee 1.2",
+  "description": "Futuristic AI-Powered Digital Employee Platform with Admin Dashboard, Industry Demos, and SaaS Integrations.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
