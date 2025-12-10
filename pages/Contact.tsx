@@ -2,30 +2,58 @@
 import React, { useState } from 'react';
 import { useConfig } from '../services/configContext';
 import { Section, GlassCard, Badge, NeonButton } from '../components/Shared';
-import { Mail, Phone, MapPin, Send, MessageCircle, Facebook, Instagram, Youtube, Linkedin } from 'lucide-react';
+import { Mail, Phone, MapPin, Send, MessageCircle, Facebook, Instagram, Youtube, Linkedin, AlertCircle } from 'lucide-react';
 
 export const Contact = () => {
   const { config } = useConfig();
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', message: '' });
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Remove non-digits
     let val = e.target.value.replace(/\D/g, '');
-    // Limit to 10 digits (standard Indian mobile)
     if (val.length > 10) val = val.slice(0, 10);
-    // Add prefix if user types
     if (val.length > 0) {
         setFormData({ ...formData, phone: '+91-' + val });
     } else {
         setFormData({ ...formData, phone: '' });
     }
+    // Clear error on change
+    if (errors.phone) setErrors({...errors, phone: ''});
+  };
+
+  const handleChange = (field: string, value: string) => {
+      setFormData({ ...formData, [field]: value });
+      if (errors[field]) setErrors({...errors, [field]: ''});
+  };
+
+  const validateForm = () => {
+      const newErrors: Record<string, string> = {};
+      if (!formData.name.trim()) newErrors.name = "Name is required";
+      if (!formData.email.trim()) {
+          newErrors.email = "Email is required";
+      } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+          newErrors.email = "Please enter a valid email address";
+      }
+      
+      // Check if phone matches +91-XXXXXXXXXX
+      if (!formData.phone.trim()) {
+          newErrors.phone = "Phone number is required";
+      } else if (formData.phone.length < 14) { // +91- + 10 digits = 14 chars
+          newErrors.phone = "Please enter a valid 10-digit mobile number";
+      }
+
+      if (!formData.message.trim()) newErrors.message = "Message cannot be empty";
+
+      setErrors(newErrors);
+      return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateForm()) return;
+
     setSubmitted(true);
-    // Simulate submission
     setTimeout(() => {
        alert(`Thank you ${formData.name}! We have received your message.`);
        setSubmitted(false);
@@ -101,46 +129,46 @@ export const Contact = () => {
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Your Name</label>
                   <input 
-                    required 
                     value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    className="w-full bg-black/30 border border-white/10 rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors" 
+                    onChange={e => handleChange('name', e.target.value)}
+                    className={`w-full bg-black/30 border ${errors.name ? 'border-red-500' : 'border-white/10'} rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors`} 
                     placeholder="John Doe" 
                   />
+                  {errors.name && <p className="text-xs text-red-400 mt-1 flex items-center"><AlertCircle size={10} className="mr-1"/> {errors.name}</p>}
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Phone Number</label>
                   <input 
-                    required 
                     value={formData.phone}
                     onChange={handlePhoneChange}
-                    className="w-full bg-black/30 border border-white/10 rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors" 
+                    className={`w-full bg-black/30 border ${errors.phone ? 'border-red-500' : 'border-white/10'} rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors`} 
                     placeholder="+91-9876543210" 
                   />
+                  {errors.phone && <p className="text-xs text-red-400 mt-1 flex items-center"><AlertCircle size={10} className="mr-1"/> {errors.phone}</p>}
                 </div>
               </div>
               
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Email Address</label>
                 <input 
-                  required 
                   type="email"
                   value={formData.email}
-                  onChange={e => setFormData({...formData, email: e.target.value})}
-                  className="w-full bg-black/30 border border-white/10 rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors" 
+                  onChange={e => handleChange('email', e.target.value)}
+                  className={`w-full bg-black/30 border ${errors.email ? 'border-red-500' : 'border-white/10'} rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors`} 
                   placeholder="john@example.com" 
                 />
+                {errors.email && <p className="text-xs text-red-400 mt-1 flex items-center"><AlertCircle size={10} className="mr-1"/> {errors.email}</p>}
               </div>
 
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Message</label>
                 <textarea 
-                  required 
                   value={formData.message}
-                  onChange={e => setFormData({...formData, message: e.target.value})}
-                  className="w-full bg-black/30 border border-white/10 rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors min-h-[120px]" 
+                  onChange={e => handleChange('message', e.target.value)}
+                  className={`w-full bg-black/30 border ${errors.message ? 'border-red-500' : 'border-white/10'} rounded p-3 text-white focus:border-brand-cyan outline-none transition-colors min-h-[120px]`} 
                   placeholder="How can we help you?" 
                 />
+                {errors.message && <p className="text-xs text-red-400 mt-1 flex items-center"><AlertCircle size={10} className="mr-1"/> {errors.message}</p>}
               </div>
 
               <NeonButton fullWidth className="mt-2">

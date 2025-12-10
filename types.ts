@@ -66,17 +66,16 @@ export interface PartnerConfig {
   faq?: FAQItem[];
 }
 
-// Updated Pricing for 7 Tiers
 export interface PricingPlan {
   id: string;
-  name: string; // Free, Starter, Creator, etc.
+  name: string;
   monthlyPrice: number;
   yearlyPrice: number;
   currency: string;
   features: string[];
   maxProjects: number;
   aiCredits: number;
-  additionalCreditPrice: number; // Price in INR per 1000 credits
+  additionalCreditPrice: number;
   recommended: boolean;
   visible: boolean;
 }
@@ -90,19 +89,12 @@ export interface PricingSnapshotConfig {
 export interface WebinarConfig {
   title: string;
   subtitle: string;
-  scheduledDate: string; // ISO String
+  scheduledDate: string;
   previewImage: string;
   videoUrl: string;
   topics: string[];
-  speaker: {
-    name: string;
-    role: string;
-    image: string;
-  };
-  spots: {
-    total: number;
-    filled: number;
-  };
+  speaker: { name: string; role: string; image: string; };
+  spots: { total: number; filled: number; };
 }
 
 export interface AboutConfig {
@@ -162,7 +154,6 @@ export interface HireMePageConfig {
   subtext: string;
 }
 
-// New Types for Customer Portal
 export interface Project {
   id: string;
   name: string;
@@ -170,8 +161,8 @@ export interface Project {
   webhookUrl?: string;
   aiCreditCost?: number;
   templateId?: string;
-  workflowCountLimit?: number; // Max workflows allowed for this project
-  runCount?: number; // Current run count
+  workflowCountLimit?: number;
+  runCount?: number;
 }
 
 export interface ProjectTemplate {
@@ -180,7 +171,7 @@ export interface ProjectTemplate {
   description: string;
   webhookUrlTemplate: string;
   aiCreditCost: number;
-  defaultWorkflowCount: number; // Default limit for projects created from this template
+  defaultWorkflowCount: number;
   allowedPlanIds: string[];
 }
 
@@ -200,7 +191,7 @@ export interface Task {
   dueDate: string;
   projectId?: string;
   history?: TaskHistoryItem[];
-  dependencies?: string[]; // Array of Task IDs that must be completed before this task
+  dependencies?: string[];
 }
 
 export interface WalletTransaction {
@@ -213,7 +204,7 @@ export interface WalletTransaction {
 
 export interface CreditUsageLog {
   id: string;
-  amount: number; // Amount deducted
+  amount: number;
   description: string;
   workflowName?: string;
   projectId?: string;
@@ -258,7 +249,7 @@ export interface CustomerProfile {
   gstNo?: string;
   planId: string;
   subscriptionStatus: 'active' | 'expired';
-  subscriptionEndDate: string; // ISO
+  subscriptionEndDate: string;
   walletBalance: number;
   aiCredits: number;
   projects: Project[];
@@ -270,14 +261,61 @@ export interface CustomerProfile {
   workflowRuns?: WorkflowRun[];
 }
 
+export interface CommissionLog {
+  id: string;
+  partnerId: string;
+  date: string;
+  customerId: string;
+  customerName: string;
+  planName: string;
+  amount: number;
+  type: 'One-time' | 'Recurring';
+  status: 'Locked' | 'Under Review' | 'Changes Requested' | 'Payable' | 'Paid' | 'Void' | 'Pending'; 
+  nextRenewalDate?: string;
+  proofOfWork?: {
+    submittedAt: string;
+    description: string;
+    checklist: {
+      setupDone: boolean;
+      trainingDone: boolean;
+      dataMigrated: boolean;
+    };
+    adminFeedback?: string;
+  };
+}
+
+export interface PartnerLead {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  companyName: string;
+  status: 'New' | 'Contacted' | 'In-Discussion' | 'Converted' | 'Lost';
+  dateAdded: string;
+  notes?: string;
+}
+
+export interface PayoutRequest {
+  id: string;
+  date: string;
+  amount: number;
+  status: 'Pending' | 'Processed' | 'Rejected';
+  referenceId?: string;
+}
+
 export interface Partner {
   id: string;
   name: string;
   email: string;
   type: 'Referral' | 'Channel';
-  code: string; // Unique referral code
+  code: string;
   clicks: number;
   signups: number;
+  walletBalance: number; 
+  lockedBalance?: number; 
+  totalEarned: number; 
+  leads?: PartnerLead[];
+  payouts?: PayoutRequest[];
 }
 
 export interface SiteConfig {
@@ -319,7 +357,8 @@ export interface SiteConfig {
     keySecret: string;
     currency: string;
   };
-  // New Admin Data
   partners: Partner[];
   projectTemplates?: ProjectTemplate[];
+  commissionLogs?: CommissionLog[];
+  leadProcessingWebhook?: string;
 }

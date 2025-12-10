@@ -95,6 +95,7 @@ export const CustomerDashboard = () => {
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [localNotifications, setLocalNotifications] = useState<{id: string, type: 'alert'|'info'|'success', text: string}[]>([]);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const availableWorkflows = useMemo(() => {
     return config.employees.flatMap(emp => 
@@ -113,7 +114,6 @@ export const CustomerDashboard = () => {
   const creditPricePerUnit = creditPricePer1000 / 1000;
   const currencyCode = config.razorpay?.currency || "INR";
 
-  // Added derived state and handlers
   const openPurchaseCreditsModal = () => setIsCreditModalOpen(true);
   const handleRenewSubscription = () => setIsRenewalModalOpen(true);
   
@@ -121,8 +121,7 @@ export const CustomerDashboard = () => {
     return availableWorkflows.find(wf => wf.title === selectedWorkflowTitle);
   }, [availableWorkflows, selectedWorkflowTitle]);
 
-  // Countdown Visuals
-  const totalDays = 30; // Standard cycle
+  const totalDays = 30; 
   const progressPercentage = Math.min(100, Math.max(0, (daysRemaining / totalDays) * 100));
   const expiryDateFormatted = currentUser ? new Date(currentUser.subscriptionEndDate).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) : '';
 
@@ -131,7 +130,7 @@ export const CustomerDashboard = () => {
     const msgs: {id: string, type: 'alert'|'info'|'success', text: string}[] = [];
     if (isExpired) msgs.push({ id: 'expired', type: 'alert', text: 'Subscription Expired. Workflows Halted.' });
     else if (daysRemaining < 7) msgs.push({ id: 'exp-soon', type: 'alert', text: `Subscription expires in ${daysRemaining} days` });
-    if (currentUser.walletBalance < 500) msgs.push({ id: 'low-bal', type: 'alert', text: `Low Wallet Balance (< ${currencyCode} 500)` });
+    if ((currentUser.walletBalance || 0) < 500) msgs.push({ id: 'low-bal', type: 'alert', text: `Low Wallet Balance (< ${currencyCode} 500)` });
     setLocalNotifications(msgs);
   }, [currentUser, navigate, isExpired, daysRemaining, currencyCode]);
 
@@ -140,32 +139,40 @@ export const CustomerDashboard = () => {
   const currentProjectsCount = currentUser.projects?.length || 0;
   const isPlanLimitReached = currentProjectsCount >= currentPlan.maxProjects;
   
-  // Advanced Credit Stats
   const creditLedger = currentUser.creditLedger || [];
   const totalCreditsConsumed = creditLedger.reduce((acc, curr) => acc + (curr.creditsConsumed || 0), 0);
   const pendingCredits = creditLedger.filter(l => l.status === 'pending').reduce((acc, curr) => acc + (curr.creditsAdded || 0), 0);
-  const lifetimeCreditsAdded = creditLedger.filter(l => l.status === 'approved' && l.creditsAdded > 0).reduce((acc, curr) => acc + curr.creditsAdded, 0) + (currentPlan.aiCredits); // Rough estimate adding base plan credits
-
+  
   const handleAddProjectClick = () => {
     if (isPlanLimitReached) { setShowLimitModal(true); return; }
-    setNewProjectName(''); setNewProjectType(''); setIsProjectModalOpen(true);
+    setNewProjectName(''); setNewProjectType(''); setFormErrors({}); setIsProjectModalOpen(true);
   };
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProjectName.trim() || !newProjectType) return;
+    if (!newProjectName.trim()) { setFormErrors({projectName: 'Project Name required'}); return; }
+    if (!newProjectType) { setFormErrors({projectType: 'Please select a type'}); return; }
+    
     if ((currentUser.projects?.length || 0) >= currentPlan.maxProjects) { setShowLimitModal(true); setIsProjectModalOpen(false); return; }
     
+    const projectId = Date.now().toString();
     const tmpl = availableTemplates.find(t => t.id === newProjectType);
+    
+    let uniqueWebhook = '';
+    if (tmpl?.webhookUrlTemplate) {
+         const separator = tmpl.webhookUrlTemplate.includes('?') ? '&' : '?';
+         uniqueWebhook = `${tmpl.webhookUrlTemplate}${separator}userId=${currentUser.id}&projectId=${projectId}`;
+    }
+
     const newProj: Project = { 
-        id: Date.now().toString(), 
+        id: projectId, 
         name: newProjectName.trim(), 
         status: 'active', 
         templateId: newProjectType,
-        webhookUrl: tmpl?.webhookUrlTemplate || '', 
+        webhookUrl: uniqueWebhook, 
         aiCreditCost: tmpl?.aiCreditCost || 10,
-        workflowCountLimit: tmpl?.defaultWorkflowCount || 100, // Inherit limit
-        runCount: 0 // Init count
+        workflowCountLimit: tmpl?.defaultWorkflowCount || 100,
+        runCount: 0 
     };
     updateUserProfile({ projects: [...(currentUser.projects || []), newProj] });
     setIsProjectModalOpen(false);
@@ -307,58 +314,52 @@ export const CustomerDashboard = () => {
   };
 
   const handleTopUp = () => {
-    if (topUpAmount < 100) { alert("Minimum amount is 100"); return; }
-
-    const options = {
-      key: config.razorpay.keyId || "rzp_test_12345678",
-      amount: topUpAmount * 100, // paisa
-      currency: currencyCode,
-      name: "InFlow Automation",
-      description: "Wallet Top Up",
-      image: "https://storage.googleapis.com/digital-employee/HOME/HOME%20NEW.png",
-      handler: function(response: any) {
-        console.log("Wallet Top Up Success", response);
-        updateUserProfile({ 
-            walletBalance: currentUser.walletBalance + topUpAmount, 
-            walletTransactions: [{
-                id: response.razorpay_payment_id || 'tx_'+Date.now(), 
-                type: 'credit', 
-                amount: topUpAmount, 
-                description: 'Wallet Top Up via Razorpay', 
-                date: new Date().toISOString()
-            }, ...(currentUser.walletTransactions||[])] 
-        });
-        setIsTopUpModalOpen(false);
-        alert("Payment Successful! Wallet Updated.");
-      },
-      prefill: {
-        name: currentUser.name,
-        email: currentUser.email,
-        contact: currentUser.phone
-      },
-      theme: {
-        color: "#6C28FF"
-      }
-    };
-
-    if ((window as any).Razorpay) {
+    if (topUpAmount < 100) return;
+    
+    // Check if configured for Razorpay
+    if (config.razorpay.enabled) {
+        // Trigger Razorpay logic (Assuming Script is loaded in index.html)
+        const options = {
+            key: config.razorpay.keyId,
+            amount: topUpAmount * 100,
+            currency: currencyCode,
+            name: "InFlow Automation",
+            description: "Wallet Top Up",
+            image: "https://storage.googleapis.com/digital-employee/HOME/HOME%20NEW.png",
+            handler: function(response: any) {
+                updateUserProfile({ 
+                    walletBalance: (currentUser.walletBalance || 0) + topUpAmount, 
+                    walletTransactions: [{
+                        id: response.razorpay_payment_id || 'tx_'+Date.now(), 
+                        type: 'credit', 
+                        amount: topUpAmount, 
+                        description: 'Wallet Top Up via Razorpay', 
+                        date: new Date().toISOString()
+                    }, ...(currentUser.walletTransactions||[])] 
+                });
+                setIsTopUpModalOpen(false);
+                alert("Payment Successful! Wallet Updated.");
+            },
+            prefill: {
+                name: currentUser.name,
+                email: currentUser.email,
+                contact: currentUser.phone
+            },
+            theme: { color: "#6C28FF" }
+        };
         const rzp = new (window as any).Razorpay(options);
         rzp.open();
     } else {
-        // Fallback Simulation
-        if (window.confirm(`Razorpay SDK not loaded. Simulate top-up of ${currencyCode} ${topUpAmount}?`)) {
-            updateUserProfile({ 
-                walletBalance: currentUser.walletBalance + topUpAmount, 
-                walletTransactions: [{id: 'tx_sim_'+Date.now(), type: 'credit', amount: topUpAmount, description: 'Simulated Top Up', date: new Date().toISOString()}, ...(currentUser.walletTransactions||[])] 
-            });
-            setIsTopUpModalOpen(false);
-        }
+        // Fallback
+        updateUserProfile({ walletBalance: (currentUser.walletBalance || 0) + topUpAmount, walletTransactions: [{id: 'tx_'+Date.now(), type: 'credit', amount: topUpAmount, description: 'Top Up', date: new Date().toISOString()}, ...(currentUser.walletTransactions||[])] });
+        setIsTopUpModalOpen(false);
     }
   };
-
+  
   const executePurchaseCredits = () => {
+    if (creditQuantity <= 0) { alert("Invalid quantity"); return; }
     const cost = Math.ceil(creditQuantity * creditPricePerUnit);
-    if (currentUser.walletBalance < cost) { alert(`Insufficient funds. Cost is ${currencyCode} ${cost}`); return; }
+    if ((currentUser.walletBalance || 0) < cost) { alert(`Insufficient funds. Cost is ${currencyCode} ${cost}`); return; }
     
     // Approval Logic: Small amounts (<1000) auto-approved, large amounts pending
     const isAutoApproved = creditQuantity < 1000;
@@ -384,7 +385,7 @@ export const CustomerDashboard = () => {
     };
 
     updateUserProfile({
-      walletBalance: currentUser.walletBalance - cost,
+      walletBalance: (currentUser.walletBalance || 0) - cost,
       // Only increment available credits if approved
       aiCredits: isAutoApproved ? currentUser.aiCredits + creditQuantity : currentUser.aiCredits,
       walletTransactions: [newTx, ...(currentUser.walletTransactions || [])],
@@ -392,27 +393,41 @@ export const CustomerDashboard = () => {
     });
     
     setIsCreditModalOpen(false);
-    
-    if (isAutoApproved) {
-        alert("Purchase successful! Credits added immediately.");
-    } else {
-        alert("Purchase successful! Large volume requires admin approval. Credits will be added shortly.");
-    }
+    alert(isAutoApproved ? "Purchase successful!" : "Purchase Pending Approval.");
   };
 
   const handleRenew = () => {
       const cost = currentPlan.monthlyPrice * 1.18;
-      if (currentUser.walletBalance < cost) { setTopUpAmount(Math.ceil(cost - currentUser.walletBalance)); setIsTopUpModalOpen(true); return; }
+      if ((currentUser.walletBalance || 0) < cost) { setTopUpAmount(Math.ceil(cost - (currentUser.walletBalance || 0))); setIsTopUpModalOpen(true); return; }
       const end = new Date(currentUser.subscriptionEndDate); const newEnd = new Date(end.getTime()>Date.now()?end:new Date()); newEnd.setDate(newEnd.getDate()+30);
-      updateUserProfile({ walletBalance: currentUser.walletBalance - cost, subscriptionEndDate: newEnd.toISOString(), walletTransactions: [{id:'tx_renew_'+Date.now(), type:'debit', amount:cost, description:'Renewal', date:new Date().toISOString()}, ...(currentUser.walletTransactions||[])], subscriptionStatus: 'active' });
+      updateUserProfile({ walletBalance: (currentUser.walletBalance || 0) - cost, subscriptionEndDate: newEnd.toISOString(), walletTransactions: [{id:'tx_renew_'+Date.now(), type:'debit', amount:cost, description:'Renewal', date:new Date().toISOString()}, ...(currentUser.walletTransactions||[])], subscriptionStatus: 'active' });
       setIsRenewalModalOpen(false);
   };
 
-  const openCreateTaskModal = () => { setNewTask({ title: '', priority: 'medium', status: 'todo', projectId: taskProjectFilter !== 'all' ? taskProjectFilter : '', dueDate: new Date().toISOString(), dependencies: [] }); setEditingId(null); setIsTaskModalOpen(true); };
-  const openEditTaskModal = (task: Task) => { setNewTask(task); setEditingId(task.id); setIsTaskModalOpen(true); };
-  const handleSaveTask = (e: React.FormEvent) => { e.preventDefault(); if(!newTask.title) return; const p = {...newTask, dependencies:newTask.dependencies||[]} as Task; if(editingId) updateTask(editingId, p); else addTask(p); setIsTaskModalOpen(false); };
+  const openCreateTaskModal = () => { setNewTask({ title: '', priority: 'medium', status: 'todo', projectId: taskProjectFilter !== 'all' ? taskProjectFilter : '', dueDate: new Date().toISOString(), dependencies: [] }); setEditingId(null); setFormErrors({}); setIsTaskModalOpen(true); };
+  const openEditTaskModal = (task: Task) => { setNewTask(task); setEditingId(task.id); setFormErrors({}); setIsTaskModalOpen(true); };
+  const handleSaveTask = (e: React.FormEvent) => { 
+      e.preventDefault(); 
+      if(!newTask.title) { setFormErrors({taskTitle: "Title required"}); return; }
+      
+      const taskPayload = {
+          title: newTask.title,
+          description: newTask.description || '',
+          priority: (newTask.priority as any) || 'medium',
+          status: (newTask.status as any) || 'todo',
+          projectId: newTask.projectId || '',
+          dueDate: newTask.dueDate || new Date().toISOString(),
+          dependencies: newTask.dependencies || []
+      } as Task;
+
+      if(editingId) updateTask(editingId, taskPayload); 
+      else addTask(taskPayload); 
+      
+      setIsTaskModalOpen(false); 
+  };
   const toggleDependency = (id:string) => { const deps = newTask.dependencies || []; if(deps.includes(id)) setNewTask({...newTask, dependencies: deps.filter(d=>d!==id)}); else setNewTask({...newTask, dependencies: [...deps, id]}); };
 
+  // ... (SettingsManager same as previous)
   const SettingsManager = () => {
       const [formData, setFormData] = useState({ name: currentUser.name, businessName: currentUser.businessName || '', email: currentUser.email, phone: currentUser.phone, gstNo: currentUser.gstNo || '' });
       return (
@@ -425,6 +440,7 @@ export const CustomerDashboard = () => {
       );
   };
 
+  // ... (TaskManager same as previous)
   const TaskManager = () => {
     const allTasks = currentUser.tasks || [];
     const tasks = useMemo(() => { if (taskProjectFilter === 'all') return allTasks; return allTasks.filter(t => t.projectId === taskProjectFilter); }, [allTasks, taskProjectFilter]);
@@ -443,6 +459,7 @@ export const CustomerDashboard = () => {
     );
   };
 
+  // ... (WalletManager same as previous)
   const WalletManager = () => {
     const [viewMode, setViewMode] = useState<'transactions' | 'ledger'>('transactions');
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
@@ -482,7 +499,7 @@ export const CustomerDashboard = () => {
                <div className="flex justify-between items-start mb-6">
                  <div>
                    <span className="text-gray-400 uppercase text-xs font-bold tracking-wider flex items-center gap-2 mb-2"><Wallet size={16} /> Total Balance</span>
-                   <h2 className="text-5xl font-bold text-white tracking-tight">{currencyCode} {currentUser.walletBalance.toLocaleString('en-IN')}</h2>
+                   <h2 className="text-5xl font-bold text-white tracking-tight">{currencyCode} {(currentUser.walletBalance || 0).toLocaleString('en-IN')}</h2>
                  </div>
                  <NeonButton onClick={() => { setTopUpAmount(1000); setIsTopUpModalOpen(true); }} className="shadow-lg">
                    <Plus size={18} className="mr-2" /> Add Funds
@@ -677,10 +694,10 @@ export const CustomerDashboard = () => {
                   </GlassCard>
                   <GlassCard className="p-4 flex flex-col justify-between">
                     <span className="text-xs text-gray-400 uppercase font-bold flex items-center gap-2"><CreditCard size={14}/> Wallet Balance</span>
-                    <div className="text-2xl font-bold mt-2 text-white">{currencyCode} {currentUser.walletBalance.toLocaleString()}</div>
+                    <div className="text-2xl font-bold mt-2 text-white">{currencyCode} {(currentUser.walletBalance || 0).toLocaleString('en-IN')}</div>
                     <button onClick={() => { setIsTopUpModalOpen(true); }} className="text-xs text-brand-cyan mt-1 hover:underline text-left font-bold">+ Top Up</button>
                   </GlassCard>
-                  <GlassCard className={`p-4 flex flex-col justify-between ${isExpired ? 'border-red-500/50' : ''}`}>
+                  <GlassCard className={`p-4 flex flex-col justify-between ${isExpired ? 'border-red-500/50 bg-red-500/5' : ''}`}>
                     <div className="flex justify-between items-start">
                         <span className="text-xs text-gray-400 uppercase font-bold flex items-center gap-2"><Clock size={14}/> Subscription</span>
                         {daysRemaining <= 5 && !isExpired && <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded animate-pulse">Expiring Soon</span>}
@@ -825,10 +842,10 @@ export const CustomerDashboard = () => {
                           <h3 className="font-bold">My Projects</h3>
                           <button 
                             onClick={handleAddProjectClick} 
-                            className={`p-1.5 rounded transition-colors ${isPlanLimitReached ? 'text-gray-500 hover:text-gray-400 cursor-not-allowed' : 'text-brand-cyan hover:bg-white/10'}`}
-                            title={isPlanLimitReached ? "Plan Limit Reached" : "Add Project"}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-bold transition-colors border ${isPlanLimitReached ? 'border-gray-700 text-gray-500 cursor-not-allowed' : 'border-brand-cyan/30 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/20'}`}
+                            title={isPlanLimitReached ? "Plan Limit Reached" : "Add New Project"}
                           >
-                            <Plus size={20}/>
+                            <Plus size={14}/> Add Project
                           </button>
                         </div>
                         <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
@@ -870,12 +887,17 @@ export const CustomerDashboard = () => {
       {/* Create Project Modal with Template Selection */}
       <Modal isOpen={isProjectModalOpen} onClose={() => setIsProjectModalOpen(false)} title="New Project">
          <form onSubmit={handleCreateProject} className="space-y-4">
-             <div><label className="block text-xs text-gray-500 uppercase font-bold mb-1">Project Name</label><input autoFocus required value={newProjectName} onChange={e => setNewProjectName(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded p-3 text-white focus:border-brand-cyan outline-none" placeholder="My New Project" /></div>
+             <div>
+                <label className="block text-xs text-gray-500 uppercase font-bold mb-1">Project Name</label>
+                <input autoFocus value={newProjectName} onChange={e => {setNewProjectName(e.target.value); if(formErrors.projectName) setFormErrors({...formErrors, projectName:''}); }} className={`w-full bg-black/30 border ${formErrors.projectName ? 'border-red-500' : 'border-white/10'} rounded p-3 text-white focus:border-brand-cyan outline-none`} placeholder="My New Project" />
+                {formErrors.projectName && <p className="text-red-400 text-xs mt-1">{formErrors.projectName}</p>}
+             </div>
              <div>
                 <label className="block text-xs text-gray-500 uppercase font-bold mb-1">Project Type (Template)</label>
+                {formErrors.projectType && <p className="text-red-400 text-xs mb-1">{formErrors.projectType}</p>}
                 <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto custom-scrollbar">
                     {availableTemplates.map(t => (
-                        <div key={t.id} onClick={() => setNewProjectType(t.id)} className={`p-3 rounded border cursor-pointer transition-all ${newProjectType === t.id ? 'bg-brand-cyan/20 border-brand-cyan' : 'bg-black/30 border-white/10 hover:border-white/30'}`}>
+                        <div key={t.id} onClick={() => {setNewProjectType(t.id); if(formErrors.projectType) setFormErrors({...formErrors, projectType:''}); }} className={`p-3 rounded border cursor-pointer transition-all ${newProjectType === t.id ? 'bg-brand-cyan/20 border-brand-cyan' : 'bg-black/30 border-white/10 hover:border-white/30'}`}>
                             <div className="flex justify-between items-center">
                                 <span className="font-bold text-sm text-white">{t.name}</span>
                                 <Badge color="violet">{t.aiCreditCost} Credits</Badge>
@@ -885,7 +907,7 @@ export const CustomerDashboard = () => {
                     ))}
                 </div>
              </div>
-             <div className="pt-2 flex justify-end gap-3"><NeonButton variant="outline" type="button" onClick={() => setIsProjectModalOpen(false)}>Cancel</NeonButton><NeonButton type="submit" disabled={!newProjectType}>Create Project</NeonButton></div>
+             <div className="pt-2 flex justify-end gap-3"><NeonButton variant="outline" type="button" onClick={() => setIsProjectModalOpen(false)}>Cancel</NeonButton><NeonButton type="submit">Create Project</NeonButton></div>
          </form>
       </Modal>
 
@@ -912,97 +934,26 @@ export const CustomerDashboard = () => {
       </Modal>
 
       {/* Modals for Credit, TopUp, Renewal, Limit (Reused logic) */}
-      <Modal isOpen={isCreditModalOpen} onClose={() => setIsCreditModalOpen(false)} title="Purchase AI Credits">
-         <div className="space-y-6">
-             <div className="bg-white/5 p-4 rounded-lg flex justify-between items-center border border-white/10">
-                <span className="text-gray-400 text-sm">Current Wallet Balance</span>
-                <span className="text-xl font-bold text-white">{currencyCode} {currentUser.walletBalance}</span>
-             </div>
-
-             <div>
-                <label className="block text-xs text-gray-500 uppercase font-bold mb-2">Number of Credits</label>
-                <div className="relative">
-                  <input 
-                      type="number" 
-                      min="10"
-                      step="10"
-                      value={creditQuantity} 
-                      onChange={(e) => setCreditQuantity(Math.max(1, parseInt(e.target.value) || 0))}
-                      className="w-full bg-black/30 border border-white/10 rounded p-4 text-white focus:border-brand-cyan outline-none text-2xl font-bold text-center"
-                  />
-                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-sm text-gray-500 font-bold">CREDITS</div>
-                </div>
-                <p className="text-xs text-center text-gray-400 mt-2">Rate: {currencyCode} {creditPricePer1000} per 1000 credits (No GST Applicable)</p>
-             </div>
-
-             <div className="border-t border-white/10 pt-4">
-                <div className="flex justify-between items-center mb-6">
-                    <span className="text-gray-400">Total Cost</span>
-                    <span className="text-3xl font-bold text-brand-cyan">{currencyCode} {Math.ceil(creditQuantity * creditPricePerUnit)}</span>
-                </div>
-                
-                {currentUser.walletBalance < Math.ceil(creditQuantity * creditPricePerUnit) && (
-                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded mb-4 text-sm flex items-center gap-2 animate-pulse">
-                        <AlertCircle size={16} /> 
-                        <span>Insufficient Wallet Balance. <button onClick={() => { setIsCreditModalOpen(false); setIsTopUpModalOpen(true); }} className="underline font-bold hover:text-white">Top Up Now</button></span>
-                    </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                     <NeonButton variant="outline" onClick={() => setIsCreditModalOpen(false)}>Cancel</NeonButton>
-                     <NeonButton 
-                        disabled={currentUser.walletBalance < Math.ceil(creditQuantity * creditPricePerUnit)} 
-                        onClick={executePurchaseCredits}
-                     >
-                        Confirm Purchase
-                     </NeonButton>
-                </div>
-             </div>
-         </div>
-      </Modal>
-      <Modal isOpen={isTopUpModalOpen} onClose={() => setIsTopUpModalOpen(false)} title="Add Funds to Wallet">
-         <div className="space-y-6">
-             <div className="p-4 bg-brand-violet/10 border border-brand-violet/30 rounded-lg">
-                <p className="text-sm text-gray-300 mb-1">Current Balance</p>
-                <p className="text-2xl font-bold text-white">{currencyCode} {currentUser.walletBalance.toLocaleString()}</p>
-             </div>
-
-             <div>
-                <label className="block text-xs text-gray-500 uppercase font-bold mb-2">Top-up Amount ({currencyCode})</label>
-                <div className="grid grid-cols-4 gap-2 mb-3">
-                   {[500, 1000, 2500, 5000].map(amt => (
-                      <button 
-                        key={amt} 
-                        onClick={() => setTopUpAmount(amt)}
-                        className={`py-2 rounded text-sm font-bold border ${topUpAmount === amt ? 'bg-brand-cyan text-black border-brand-cyan' : 'bg-white/5 text-gray-400 border-white/10 hover:border-white/30'}`}
-                      >
-                        {currencyCode} {amt}
-                      </button>
-                   ))}
-                </div>
-                <input 
-                    type="number" 
-                    min="100"
-                    step="100"
-                    value={topUpAmount} 
-                    onChange={(e) => setTopUpAmount(Math.max(0, parseInt(e.target.value) || 0))}
-                    className="w-full bg-black/30 border border-white/10 rounded p-4 text-white focus:border-brand-cyan outline-none text-xl font-bold"
-                />
-             </div>
-
-             <div className="pt-4 border-t border-white/10">
-                <NeonButton fullWidth onClick={handleTopUp} disabled={topUpAmount < 100}>
-                   Proceed to Payment (Razorpay)
-                </NeonButton>
-                <p className="text-xs text-center text-gray-500 mt-3 flex items-center justify-center gap-1">
-                  <CreditCard size={12} /> Secure encrypted payment
-                </p>
-             </div>
-         </div>
-      </Modal>
+      <Modal isOpen={isCreditModalOpen} onClose={() => setIsCreditModalOpen(false)} title="Purchase AI Credits"><div className="space-y-4"><p>Rate: {currencyCode} {creditPricePer1000}/1000 credits</p><input type="number" value={creditQuantity} onChange={e=>setCreditQuantity(Number(e.target.value))} className="w-full bg-black/30 p-2 rounded text-white"/><NeonButton fullWidth onClick={executePurchaseCredits}>Buy</NeonButton></div></Modal>
+      <Modal isOpen={isTopUpModalOpen} onClose={() => setIsTopUpModalOpen(false)} title="Top Up"><input type="number" value={topUpAmount} onChange={e=>setTopUpAmount(Number(e.target.value))} className="w-full bg-black/30 p-2 rounded text-white mb-4"/><NeonButton fullWidth onClick={handleTopUp}>Pay</NeonButton></Modal>
       <Modal isOpen={isRenewalModalOpen} onClose={() => setIsRenewalModalOpen(false)} title="Renew Subscription"><p className="mb-4">Total: {currencyCode} {(currentPlan.monthlyPrice * 1.18).toFixed(2)} (inc GST)</p><NeonButton fullWidth onClick={handleRenew}>Confirm Renewal</NeonButton></Modal>
       <Modal isOpen={showLimitModal} onClose={() => setShowLimitModal(false)} title="Limit Reached"><p>Upgrade plan to add more projects.</p></Modal>
-      <Modal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} title={editingId ? "Edit Task" : "Create New Task"}><form onSubmit={handleSaveTask} className="space-y-4"><div><label className="block text-xs text-gray-500 uppercase font-bold mb-1">Title</label><input required value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded p-3 text-white"/></div><NeonButton fullWidth type="submit">Save</NeonButton></form></Modal>
+      <Modal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} title={editingId ? "Edit Task" : "Create New Task"}>
+          <form onSubmit={handleSaveTask} className="space-y-4">
+              <div>
+                  <label className="block text-xs text-gray-500 uppercase font-bold mb-1">Title</label>
+                  <input value={newTask.title} onChange={e => {setNewTask({...newTask, title: e.target.value}); if(formErrors.taskTitle) setFormErrors({...formErrors, taskTitle:''});}} className={`w-full bg-black/30 border ${formErrors.taskTitle ? 'border-red-500' : 'border-white/10'} rounded p-3 text-white`} />
+                  {formErrors.taskTitle && <p className="text-red-400 text-xs mt-1">{formErrors.taskTitle}</p>}
+              </div>
+              <div><label className="block text-xs text-gray-500 uppercase font-bold mb-1">Description</label><textarea value={newTask.description} onChange={e => setNewTask({...newTask, description: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded p-3 text-white h-24"/></div>
+              <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs text-gray-500 uppercase font-bold mb-1">Priority</label><select value={newTask.priority} onChange={e => setNewTask({...newTask, priority: e.target.value as any})} className="w-full bg-black/30 border border-white/10 rounded p-3 text-white"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+                  <div><label className="block text-xs text-gray-500 uppercase font-bold mb-1">Due Date</label><input type="date" value={newTask.dueDate ? newTask.dueDate.split('T')[0] : ''} onChange={e => setNewTask({...newTask, dueDate: e.target.value + 'T12:00:00'})} className="w-full bg-black/30 border border-white/10 rounded p-3 text-white"/></div>
+              </div>
+              <div className="mb-4"><label className="block text-xs text-gray-500 uppercase font-bold mb-1">Project</label><select value={newTask.projectId || ''} onChange={e => setNewTask({...newTask, projectId: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded p-3 text-white"><option value="">-- No Project --</option>{currentUser.projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              <NeonButton fullWidth type="submit">{editingId ? "Save Changes" : "Create Task"}</NeonButton>
+          </form>
+      </Modal>
     </div>
   );
 };

@@ -205,7 +205,7 @@ export const DEFAULT_CONFIG: SiteConfig = {
     subtitle: "Learn how to automate Marketing, Sales, HR & Operations to scale your business without increasing headcount.",
     scheduledDate: getFutureDate(3),
     previewImage: "https://picsum.photos/800/450?grayscale&blur=2",
-    videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ", // Placeholder
+    videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
     topics: [
       "What are Digital Employees vs. Bots?",
       "Live demo of an AI Sales Agent closing a deal",
@@ -348,11 +348,17 @@ export const DEFAULT_CONFIG: SiteConfig = {
     keySecret: "razorpay_secret_key_placeholder",
     currency: "INR"
   },
-  partners: [],
-  // UPDATED DEFAULT PROJECT TEMPLATES
+  partners: [
+    { id: "p1", name: "Rahul Sharma", email: "partner@inflow.co.in", type: "Channel", code: "RAHUL20", clicks: 120, signups: 8, walletBalance: 45000, totalEarned: 120000 }
+  ],
   projectTemplates: [
     { id: 'marketing-auto', name: 'Social Media Autopilot', description: 'Generates and posts content to LinkedIn & Twitter.', webhookUrlTemplate: 'https://n8n.inflow.co.in/webhook/marketing-v1', aiCreditCost: 15, defaultWorkflowCount: 100, allowedPlanIds: [] },
     { id: 'sales-bot', name: 'WhatsApp Lead Qualifier', description: 'Responds to incoming leads and scores them.', webhookUrlTemplate: 'https://n8n.inflow.co.in/webhook/sales-v1', aiCreditCost: 10, defaultWorkflowCount: 500, allowedPlanIds: [] },
     { id: 'invoice-gen', name: 'Invoice Generator', description: 'Creates PDF invoices from form data and emails them.', webhookUrlTemplate: 'https://n8n.inflow.co.in/webhook/finance-v1', aiCreditCost: 12, defaultWorkflowCount: 50, allowedPlanIds: ['pro', 'business', 'enterprise'] }
+  ],
+  commissionLogs: [
+    { id: 'c1', partnerId: 'p1', date: '2023-10-01', customerName: 'Alpha Tech', planName: 'Business', amount: 8000, type: 'Recurring', status: 'Paid', nextRenewalDate: '2023-11-01', customerId: 'c1' },
+    { id: 'c2', partnerId: 'p1', date: '2023-10-05', customerName: 'Beta Corp', planName: 'Pro', amount: 3000, type: 'One-time', status: 'Paid', nextRenewalDate: '2023-11-05', customerId: 'c2' },
+    { id: 'c3', partnerId: 'p1', date: '2023-10-24', customerName: 'Gamma Sol', planName: 'Starter', amount: 600, type: 'Recurring', status: 'Pending', nextRenewalDate: '2023-11-24', customerId: 'c3' }
   ]
 };

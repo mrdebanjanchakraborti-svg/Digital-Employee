@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useConfig } from '../services/configContext';
 import { Section, GlassCard, NeonButton } from '../components/Shared';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, User, Mail, Lock, Trash2, CheckCircle, CreditCard, ArrowRight } from 'lucide-react';
+import { ShieldCheck, User, Mail, Lock, Trash2, CheckCircle, CreditCard, ArrowRight, AlertCircle } from 'lucide-react';
 
 export const Cart = () => {
   const { cart, currentUser, loginUser, removeFromCart, referralCode, config } = useConfig();
@@ -11,6 +11,7 @@ export const Cart = () => {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   if (!cart) {
     return (
@@ -27,8 +28,22 @@ export const Cart = () => {
     );
   }
 
+  const validateAuth = () => {
+    const newErrors: Record<string, string> = {};
+    if (!email.trim()) newErrors.email = "Email is required";
+    else if (!/\S+@\S+\.\S+/.test(email)) newErrors.email = "Invalid email format";
+    
+    if (!password) newErrors.password = "Password is required";
+    else if (authMode === 'signup' && password.length < 6) newErrors.password = "Password must be at least 6 characters";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleAuth = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateAuth()) return;
+
     // Simulate Auth
     const mockUser: any = {
       id: 'cust_' + Date.now(),
@@ -160,12 +175,30 @@ export const Cart = () => {
                     <form onSubmit={handleAuth} className="space-y-4">
                         <div className="relative">
                             <Mail className="absolute left-3 top-3.5 text-gray-500" size={18} />
-                            <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email Address" className="w-full bg-black/30 border border-white/10 rounded p-3 pl-10 text-white focus:border-brand-cyan outline-none"/>
+                            <input 
+                                type="email" 
+                                required 
+                                value={email} 
+                                onChange={e=>{setEmail(e.target.value); if(errors.email) setErrors({...errors, email: ''})}} 
+                                placeholder="Email Address" 
+                                className={`w-full bg-black/30 border ${errors.email ? 'border-red-500' : 'border-white/10'} rounded p-3 pl-10 text-white focus:border-brand-cyan outline-none transition-colors`}
+                            />
                         </div>
+                        {errors.email && <p className="text-xs text-red-400 mt-1 flex items-center"><AlertCircle size={10} className="mr-1"/> {errors.email}</p>}
+
                         <div className="relative">
                             <Lock className="absolute left-3 top-3.5 text-gray-500" size={18} />
-                            <input type="password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" className="w-full bg-black/30 border border-white/10 rounded p-3 pl-10 text-white focus:border-brand-cyan outline-none"/>
+                            <input 
+                                type="password" 
+                                required 
+                                value={password} 
+                                onChange={e=>{setPassword(e.target.value); if(errors.password) setErrors({...errors, password: ''})}} 
+                                placeholder="Password" 
+                                className={`w-full bg-black/30 border ${errors.password ? 'border-red-500' : 'border-white/10'} rounded p-3 pl-10 text-white focus:border-brand-cyan outline-none transition-colors`}
+                            />
                         </div>
+                        {errors.password && <p className="text-xs text-red-400 mt-1 flex items-center"><AlertCircle size={10} className="mr-1"/> {errors.password}</p>}
+                        
                         <NeonButton fullWidth>{authMode === 'signup' ? 'Create Account' : 'Log In'}</NeonButton>
                     </form>
                  </div>
