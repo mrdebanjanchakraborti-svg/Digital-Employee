@@ -1,22 +1,26 @@
+# Step 1: Use Node.js
 FROM node:18-alpine
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy files and install dependencies
 COPY package*.json ./
 RUN npm install
 
-# Copy all files
+# Copy all project files
 COPY . .
 
-# Build the app
+# Build the project
 RUN npm run build
 
-# --- FIX FOR CLOUD RUN PORT 8080 ERROR ---
+# --- FIX FOR GOOGLE CLOUD ---
+# Install a simple server to host the site
+RUN npm install -g serve
+
+# Force the app to listen on Port 8080
 ENV PORT=8080
 EXPOSE 8080
 
-# Install a simple server to serve the static build on Port 8080
-RUN npm install -g serve
+# Start command
 CMD ["serve", "-s", "build", "-l", "8080"]
